@@ -1,6 +1,7 @@
 .env
 .venv
-__pycahce__
+fastapi/__pycahce__
+flask/__pycahce__
 
 #flask/
 fastapi/
