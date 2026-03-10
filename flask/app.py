@@ -31,6 +31,7 @@ def add_todo():
         return jsonify({"error": "Title is required"}), 400
     
     new_id = max(todo["id"] for todo in todos) + 1 if todos else 1
+    
     new_todo = {
         "id": new_id,
         "title": data["title"],
