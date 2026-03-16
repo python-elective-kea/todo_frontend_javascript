@@ -1,4 +1,4 @@
-name: Docker Publish
+name: Docker Publish and Deploy
 
 on:
   push:
@@ -7,6 +7,9 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
+  AZURE_VM_USER: ${{ secrets.SSH_USER }}
+  AZURE_VM_HOST: ${{ secrets.SSH_HOST }}
+  AZURE_VM_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
 
 jobs:
   build-and-push-image:
@@ -14,6 +17,8 @@ jobs:
     permissions:
       contents: read
       packages: write
+    outputs:
+      image-tag: ${{ steps.meta.outputs.tags }}
 
     steps:
       - name: Checkout repository
@@ -33,9 +38,38 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
 
       - name: Build and push Docker image
+        id: build-push
         uses: docker/build-push-action@v5
         with:
-          context: .
+          context: ./fastapi
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+  deploy-to-azure:
+    needs: build-and-push-image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install SSH key
+        uses: shimataro/ssh-key-action@v2
+        with:
+          key: ${{ env.AZURE_VM_KEY }}
+          known_hosts: "just-a-placeholder-so-we-skip-known-hosts"
+
+      - name: Deploy to Azure VM
+        run: |
+          # Extract the image tag from the build job
+          IMAGE_TAG=$(echo "${{ needs.build-and-push-image.outputs.image-tag }}" | sed 's/.*://')
+          
+          # SSH into the Azure VM and deploy
+          ssh -o StrictHostKeyChecking=no \
+            -i ~/.ssh/id_rsa \
+            ${{ env.AZURE_VM_USER }}@${{ env.AZURE_VM_HOST }} \
+            "cd ~/app && \
+            docker login ghcr.io -u ${{ github.actor }} -p ${{ secrets.GITHUB_TOKEN }} && \
+            docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:$IMAGE_TAG && \
+            docker-compose -f docker-compose.prod.yml down && \
+            docker-compose -f docker-compose.prod.yml up -d"
