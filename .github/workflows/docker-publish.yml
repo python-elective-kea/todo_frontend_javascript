@@ -46,30 +46,40 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
 
-  deploy-to-azure:
+  deploy:
     needs: build-and-push-image
     runs-on: ubuntu-latest
+    env:
+      SSH_USER: ${{ secrets.SSH_USER }}
+      SSH_HOST: ${{ secrets.SSH_HOST }}
+
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Install SSH key
-        uses: shimataro/ssh-key-action@v2
-        with:
-          key: ${{ env.AZURE_VM_KEY }}
-          known_hosts: "just-a-placeholder-so-we-skip-known-hosts"
-
-      - name: Deploy to Azure VM
+      - name: Add SSH key to runner
         run: |
-          # Extract the image tag from the build job
-          IMAGE_TAG=$(echo "${{ needs.build-and-push-image.outputs.image-tag }}" | sed 's/.*://')
-          
-          # SSH into the Azure VM and deploy
-          ssh -o StrictHostKeyChecking=no \
-            -i ~/.ssh/id_rsa \
-            ${{ env.AZURE_VM_USER }}@${{ env.AZURE_VM_HOST }} \
-            "cd ~/app && \
-            docker login ghcr.io -u ${{ github.actor }} -p ${{ secrets.GITHUB_TOKEN }} && \
-            docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:$IMAGE_TAG && \
-            docker-compose -f docker-compose.prod.yml down && \
-            docker-compose -f docker-compose.prod.yml up -d"
+          mkdir -p ~/.ssh/
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/ssh_key
+          chmod 600 ~/.ssh/ssh_key
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Create .env file
+        run: |
+          echo "GREETING=Hello from Github Action" >> .env
+
+      - name: Transfer .env file to server
+        run: |
+          scp -i ~/.ssh/ssh_key -o StrictHostKeyChecking=no .env $SSH_USER@$SSH_HOST:.env
+
+      - name: Check Out Repository
+        uses: actions/checkout@v6
+
+      - name: Transfer Docker compose file to server
+        run: |
+          scp -i ~/.ssh/ssh_key -o StrictHostKeyChecking=no fastapi/docker-compose.prod.yml $SSH_USER@$SSH_HOST:docker-compose.yml
+
+      - name: Deploy to server
+        run: |
+          ssh -i ~/.ssh/ssh_key -o StrictHostKeyChecking=no $SSH_USER@$SSH_HOST << "EOF"
+            sudo docker compose pull
+            sudo docker compose up -d
+          EOF
