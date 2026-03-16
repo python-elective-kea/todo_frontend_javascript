@@ -73,13 +73,15 @@ jobs:
       - name: Check Out Repository
         uses: actions/checkout@v6
 
-      - name: Transfer Docker compose file to server
+      - name: Transfer Docker files to server
         run: |
-          scp -i ~/.ssh/ssh_key -o StrictHostKeyChecking=no fastapi/docker-compose.prod.yml $SSH_USER@$SSH_HOST:docker-compose.yml
+          scp -i ~/.ssh/ssh_key -o StrictHostKeyChecking=no -r fastapi/* $SSH_USER@$SSH_HOST:app/
+          scp -i ~/.ssh/ssh_key -o StrictHostKeyChecking=no fastapi/docker-compose.prod.yml $SSH_USER@$SSH_HOST:app/docker-compose.yml
 
       - name: Deploy to server
         run: |
           ssh -i ~/.ssh/ssh_key -o StrictHostKeyChecking=no $SSH_USER@$SSH_HOST << "EOF"
+            cd app
             sudo docker compose pull
-            sudo docker compose up -d
+            sudo docker compose up -d --build
           EOF
